@@ -1,75 +1,170 @@
 #Module provides several tools(methods) for Iterative TSP algorithm
 include("Constraints.jl")
 
-export greedyTSP, SA
+export greedyTSP, SA, GeneticAlgorithm
 
 #Genetic algorithm begin
 
-function GeneticAlgorithm(population, steps::Int64)
+function GeneticAlgorithm(availableCities, startCity, maxSteps::Int64, populationSize::Int64, elitism)
     i = 0
-    mutationBorder = 0.5
-    while i < steps
-        newPopulation = PreparePopulation(population)
-        for j = 1 : length(population)
-           x = Selection(population)
-           y = Selection(population)
-           child = Reproduce(x, y)
-           if(GetRandomNumber() < mutationBorder)
-               child = Mutate(child)
-            end
-            push!(newPopulation, child)
+    print("Initial distance : ")
+    print(1/FitnessFunction(availableCities))
+    population = InitPopulation(availableCities, populationSize, startCity)
+    while i < maxSteps
+        population = Evolve(population)
+        print("\niteration: ", i, " distance: ", GetTourDistance(GetFittestFromPopulation(population)))
+
+        i = i + 1
+    end
+    print("\n")
+    print("Shortest path after ", maxSteps, " iterations: ")
+    fittest = GetFittestFromPopulation(population)
+    for i = 1 : length(fittest) - 1
+        print(fittest[i].id, "-> ")
+    end
+    print(fittest[length(fittest)].id, "\n")
+end
+
+function Evolve(population)
+    mutationProbability = 0.5
+    newPopulation = {}
+    for i = 1 : length(population)
+        parent1 = Selection(population)
+        parent2 = Selection(population)
+        child = Reproduce(parent1, parent2)
+        if(GetRandomFloatNumber(1.0) < mutationProbability)
+            child = Mutate(child)
+        end
+        push!(newPopulation, child)
+    end
+    return newPopulation
+end
+
+function InitPopulation(availableCities, pSize::Int64, startCity)
+    path = GetRandomRoute(startCity, availableCities)
+    tours = {path}
+    for i = 1 : pSize
+        push!(tours, GetRandomRoute(startCity, availableCities))
+    end
+    return tours
+end
+
+function GetFittestFromPopulation(population)
+    fittest = population[1]
+    for i = 2 : length(population)
+        if((1/FitnessFunction(fittest)) > (1/FitnessFunction(population[i])))
+            fittest = population[i]
         end
     end
+    return fittest
+end
+
+function GetRandomRoute(startCity, cities)
+    path = City[]
+    push!(path, cities[startCity])
+    i = 1
+    while i < length(cities)
+        randomIndex = abs(rand(Int64)%(length(cities) - 1)) + 2
+        if(!isCityInPath(cities[randomIndex], path))
+            push!(path, cities[randomIndex])
+            i = i + 1
+        end
+    end
+    return path
+end
+
+function Selection(population)
+    k = GetRandomIntNumber(length(population))
+    tournament = {}
+    for i = 1 : k
+        push!(tournament, population[GetRandomIntNumber(length(population))])
+    end
+    return GetFittestFromPopulation(tournament)
+end
+
+function GetCityIndexInPopulation(population, tour)
+    for i = 1 : length(population)
+        if(population[i] == tour)
+            return i
+        end
+    end
+    return -1
+end
+
+function GetCityFromPopulation(population, cityId)
+    for i = 1 : length(population)
+        if(population[i].id == cityId)
+            return population[i]
+        end
+    end
+    return City(0, 0, 0)
+end
+
+function GetTourDistance(tour)
+    totalDistance = 0.0
+    for i = 2 : length(tour)
+        totalDistance = totalDistance + getLength(tour[i-1], tour[i])
+    end
+    totalDistance = totalDistance + getLength(tour[length(tour)], tour[1])
+    return totalDistance
+end
+
+function FitnessFunction(tour)
+    return 1 / GetTourDistance(tour)
 end
 
 function Reproduce(x, y)
-    cutPoint = GetRandomIntNumber(length(x))
-    child = Int64[]
-    for i = 1 : cutPoint
-        push!(child, x[i])
+    child = {}
+    startPos = GetRandomIntNumber(length(x))
+    endPos = GetRandomIntNumber(length(x))
+    for i = 1 : length(x)
+        if(startPos < endPos && i > startPos && i < endPos)
+            push!(child, x[i])
+        elseif (startPos > endPos)
+            if(!(i < startPos && i > endPos))
+                push!(child, x[i])
+            end
+        end
     end
-    for i = cutPoint : length(y)
-        push!(child, y[i])
+    for j = 1 : length(y)
+        if(!isCityInPath(y[j], child))
+            push!(child, y[j])
+        end
     end
     return child
 end
 
 function Mutate(child)
-    mutationPoint = GetRandomIntNumber(length(child) - 1)
-    temp = child[mutationPoint]
-    child[mutationPoint] = child[mutationPoint + 1]
-    child[mutationPoint + 1] = temp
+    mutationPoint1 = GetRandomIntNumber(length(child))
+    mutationPoint2 = GetRandomIntNumber(length(child))
+    temp = child[mutationPoint1]
+    child[mutationPoint1] = child[mutationPoint2]
+    child[mutationPoint2] = temp
     return child
 end
 
-function InitPopulation(pSize::Int64, connections)
-    tours = Connections[]
-    path = getStartingPath(startCity, length(connections), connections)
-    for i = 1 : pSize
-        push!(tours, computeNextPath(path, true)
-    end
-    return tours
-end
-
 function GetRandomIntNumber(range::Int64)
-    return (rand(Int64) % (range - 1)) + 1
+    return abs(rand(Int64) % (range - 1)) + 1
 end
 
-function GetRandomFloatNumber(range::Int64)
+function GetRandomFloatNumber(range)
     return rand(Float64) % range
 end
 
 function GetIdListFromCities(cityList)
     idList = Int64[]
     for i = 1 : length(cityList)
-        push!(idList, cityList.id)
+        push!(idList, cityList[i].id)
     end
+    return idList
 end
 
 function PreparePopulation(population)
-    startCityIdList = GetIdListFromCities(population)
-    populationInt = [startCityIdList]
-    return populationInt
+    cityIdList = {GetIdListFromCities(population[1])}
+    for i = 2 : length(population)
+        push!(cityIdList, GetIdListFromCities(population[i]))
+    end
+    return cityIdList
 end
 
 
@@ -89,8 +184,8 @@ function SA(startCity::City, connections)
     iter = -1
     P = 0.0
     alpha = 0.999
-    temp = 600.0
-    eps = 0.001
+    temp = 100000.0
+    eps = 0.0001
     delta = 0.0
     dist = getTotalDistance(startCity, sPath)
     while (temp > eps)
@@ -111,18 +206,26 @@ function SA(startCity::City, connections)
         if(iter % 100 == 0)
             print("Iteration : ")
             print(iter)
-            print(" distance : ")
+            print("\n\tDistance : ")
             print(dist)
+            print("\tTemperature: ")
+            print(temp)
             print("\n")
         end
     end
     print("Iteration : ")
     print(iter)
-    print(" distance : ")
+    print("\n\tDistance : ")
     print(dist)
+    print("\tTemperature: ")
+    print(temp)
     print("\n")
     print("Path : ")
-    print(sPath)
+    for i = 1 : length(sPath) - 1
+        print(sPath[i].id)
+        print("->")
+    end
+    print(sPath[length(sPath)].id)
     print("\n")
     return dist
 end
@@ -267,4 +370,12 @@ function isCityInPath(city::City, path)
         end
     end
     return false;
+end
+
+function P(key, value)
+    print("\n********\n")
+    print(key)
+    print(": ")
+    print(value)
+    print("\n********\n")
 end
