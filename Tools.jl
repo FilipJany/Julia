@@ -5,33 +5,51 @@ export greedyTSP, SA, GeneticAlgorithm
 
 #Genetic algorithm begin
 
-function GeneticAlgorithm(availableCities, startCity, maxSteps::Int64, populationSize::Int64, elitism)
+function GeneticAlgorithm(availableCities, startCity, maxSteps::Int64, populationSize::Int64)
     i = 0
+    bestDistance = 999.0
+    bestIteration = 0
+    bestTour = City[]
     print("Initial distance : ")
     print(1/FitnessFunction(availableCities))
     population = InitPopulation(availableCities, populationSize, startCity)
-    while i < maxSteps
-        population = Evolve(population)
+    while i <= maxSteps
+        population = Evolve(population, availableCities[startCity])
         print("\niteration: ", i, " distance: ", GetTourDistance(GetFittestFromPopulation(population)))
-
+        if(IsAnyBetterThanBest(bestDistance, population))
+            bestDistance = GetTourDistance(GetFittestFromPopulation(population))
+            bestIteration = i
+            bestTour = GetFittestFromPopulation(population)
+        end
         i = i + 1
     end
     print("\n")
-    print("Shortest path after ", maxSteps, " iterations: ")
-    fittest = GetFittestFromPopulation(population)
-    for i = 1 : length(fittest) - 1
-        print(fittest[i].id, "-> ")
+    print("Shortest path in ", maxSteps, " iteration: ")
+
+    print("\nShortest path after ", maxSteps, " iterations: ")
+    for i = 1 : length(bestTour) - 1
+        print(bestTour[i].id, "-> ")
     end
-    print(fittest[length(fittest)].id, "\n")
+    print(bestTour[length(bestTour)].id)
+    print(". \nDistance : ", bestDistance, " achived in iteration #", bestIteration, ".\n")
+
 end
 
-function Evolve(population)
-    mutationProbability = 0.5
+function IsAnyBetterThanBest(best, recentPopulation)
+    recentBest = GetTourDistance(GetFittestFromPopulation(recentPopulation))
+    if(recentBest < best)
+        return true;
+    end
+    return false;
+end
+
+function Evolve(population, startCity)
+    mutationProbability = 0.8
     newPopulation = {}
     for i = 1 : length(population)
         parent1 = Selection(population)
         parent2 = Selection(population)
-        child = Reproduce(parent1, parent2)
+        child = Reproduce(parent1, parent2, startCity)
         if(GetRandomFloatNumber(1.0) < mutationProbability)
             child = Mutate(child)
         end
@@ -113,11 +131,11 @@ function FitnessFunction(tour)
     return 1 / GetTourDistance(tour)
 end
 
-function Reproduce(x, y)
-    child = {}
+function Reproduce(x, y, startCity)
+    child = {startCity}
     startPos = GetRandomIntNumber(length(x))
     endPos = GetRandomIntNumber(length(x))
-    for i = 1 : length(x)
+    for i = 2 : length(x)
         if(startPos < endPos && i > startPos && i < endPos)
             push!(child, x[i])
         elseif (startPos > endPos)
@@ -135,8 +153,8 @@ function Reproduce(x, y)
 end
 
 function Mutate(child)
-    mutationPoint1 = GetRandomIntNumber(length(child))
-    mutationPoint2 = GetRandomIntNumber(length(child))
+    mutationPoint1 = GetRandomIntNumber(length(child)-1)+1
+    mutationPoint2 = GetRandomIntNumber(length(child)-1)+1
     temp = child[mutationPoint1]
     child[mutationPoint1] = child[mutationPoint2]
     child[mutationPoint2] = temp
@@ -173,62 +191,101 @@ end
 #SimAnn begin
 
 function SA(startCity::City, connections)
-    print("Starting city : ")
-    print(startCity)
-    print("\n")
-    sPath = getStartingPath(startCity, length(connections), connections)
-    print("Starting Path : ")
-    print(sPath)
-    print("\n")
-    nPath = City[]
-    iter = -1
-    P = 0.0
-    alpha = 0.999
-    temp = 100000.0
+    temp = 1000.0
     eps = 0.0001
-    delta = 0.0
-    dist = getTotalDistance(startCity, sPath)
-    while (temp > eps)
-        iter = iter + 1
-        nPath = computeNextPath(sPath, false)
-        delta = getTotalDistance(startCity, nPath) - dist
-        if(delta < 0)
-            sPath = nPath
-            dist = delta + dist
+    coolingRate = 0.997
+    useNew = false
+    currentSolution = GenerateRandomTour(startCity, connections)
+    workingSolution = CopyTour(currentSolution)
+    bestSolution = CopyTour(currentSolution)
+    while temp > eps
+        random1 = GetRandomIntNumber(length(currentSolution)) + 1
+        random2 = GetRandomIntNumber(length(currentSolution)) + 1
+        t = workingSolution[random1]
+        workingSolution[random1] = workingSolution[random2]
+        workingSolution[random2] = t
+        energy = GetTourDistance(workingSolution)
+        if(energy <= GetTourDistance(currentSolution))
+            useNew = true
         else
-            P = rand(Float64)
-            if(P < exp(-delta/temp))
-                sPath = nPath
-                dist = delta + dist
+            randomFloat = rand(Float64) % 1.0
+            delta = energy - GetTourDistance(currentSolution)
+            calc = exp(-delta / temp)
+            if(calc > randomFloat)
+                useNew = true
             end
         end
-        temp = temp * alpha
-        if(iter % 100 == 0)
-            print("Iteration : ")
-            print(iter)
-            print("\n\tDistance : ")
-            print(dist)
-            print("\tTemperature: ")
-            print(temp)
-            print("\n")
+        if(useNew == true)
+            useNew = false
+            currentSolution = CopyTour(workingSolution)
+            if(GetTourDistance(currentSolution) < GetTourDistance(bestSolution))
+                bestSolution = CopyTour(currentSolution)
+            end
+        else
+            bestSolution = CopyTour(currentSolution)
+        end
+        #print("\nCurrent sol energy: ", GetTourDistance(currentSolution))
+        #print("\nWorking sol energy: ", GetTourDistance(workingSolution))
+        #print("\nBest sol energy: ", GetTourDistance(bestSolution))
+        temp *= coolingRate
+    end
+    PrintTour(bestSolution, "Best Solution: ")
+    print("Best Distance: ", GetTourDistance(bestSolution), "\n")
+end
+
+function PrintTour(tour, descr)
+    print("\n", descr)
+    for i = 1 : length(tour) - 1
+        print(tour[i].id, "-> ")
+    end
+    print(tour[length(tour)].id, "\n")
+end
+
+function Fitness(x, xo, temp)
+    delta = (x - xo) / temp
+    delta *= -1
+    return min(1, exp(delta))
+end
+
+function CopyTour(tour)
+    newTour = {}
+    for i = 1 : length(tour)
+        push!(newTour, tour[i])
+    end
+    return newTour
+end
+
+function GetNewTour(tour)
+    newTour = {}
+    for i = 1 : length(tour)
+        push!(newTour, tour[i])
+    end
+    tourPos1 = GetRandomIntNumber(length(tour)) + 1
+    tourPos2 = GetRandomIntNumber(length(tour)) + 1
+
+    temp = newTour[tourPos1]
+    newTour[tourPos1] = newTour[tourPos2]
+    newTour[tourPos2] = temp
+    return newTour
+end
+
+
+function GenerateRandomTour(startCity, connections)
+    newTour = {}
+    push!(newTour, startCity)
+    i = 2
+    while i <= length(connections)
+        randomIndex = GetRandomIntNumber(length(connections)) + 1
+        randomCity = connections[randomIndex]
+        if(!isCityInPath(randomCity, newTour))
+            push!(newTour, randomCity)
+            i += 1
         end
     end
-    print("Iteration : ")
-    print(iter)
-    print("\n\tDistance : ")
-    print(dist)
-    print("\tTemperature: ")
-    print(temp)
-    print("\n")
-    print("Path : ")
-    for i = 1 : length(sPath) - 1
-        print(sPath[i].id)
-        print("->")
-    end
-    print(sPath[length(sPath)].id)
-    print("\n")
-    return dist
+    return newTour
 end
+
+
 
 function getStartingPath(startCity::City, pathLength::Int64, connections)
     path = City[]
@@ -288,12 +345,6 @@ function greedyTSP(startCity::City, connections)
     u = startCity
     while(length(notVisited) > 0)
         v = closestCity(u, connections)
-        print("Distance from: ")
-        print(u)
-        print(" to: ")
-        print(v)
-        print(" = ")
-        println(getLength(u, v))
         totalLength = totalLength + getLength(u, v)
         push!(visited, v)
         index = getCityIndex(v, connections)
